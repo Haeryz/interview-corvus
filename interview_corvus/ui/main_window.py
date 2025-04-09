@@ -23,6 +23,8 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
     QDialog,
+    QGroupBox,
+    QTabWidget,
 )
 
 from interview_corvus.config import settings
@@ -345,6 +347,33 @@ class MainWindow(QMainWindow):
         # Update thumbnails
         self.update_thumbnails()
         self.update_button_texts()
+
+        # Add problem text input
+        problem_text_group = QGroupBox("Problem Text Input")
+        problem_text_layout = QVBoxLayout()
+        
+        self.problem_text_edit = QTextEdit()
+        self.problem_text_edit.setPlaceholderText("Paste or type your programming problem here...")
+        problem_text_layout.addWidget(self.problem_text_edit)
+        
+        problem_text_buttons = QHBoxLayout()
+        self.generate_from_text_button = QPushButton("Generate from Text")
+        self.generate_from_text_button.clicked.connect(self.generate_solution_from_text)
+        problem_text_buttons.addWidget(self.generate_from_text_button)
+        
+        self.clear_text_button = QPushButton("Clear Text")
+        self.clear_text_button.clicked.connect(self.clear_problem_text)
+        problem_text_buttons.addWidget(self.clear_text_button)
+        
+        problem_text_layout.addLayout(problem_text_buttons)
+        problem_text_group.setLayout(problem_text_layout)
+        
+        # Add problem text group to main layout
+        main_layout.addWidget(problem_text_group)
+
+        # Add the tabs for code and explanation
+        self.tabs = QTabWidget()
+        main_layout.addWidget(self.tabs)
 
     def _create_menu_bar(self):
         """Create the application menu bar."""
@@ -1308,3 +1337,77 @@ class MainWindow(QMainWindow):
                         )
             except Exception as e:
                 logger.error(f"Error checking accessibility permissions: {e}")
+
+    def generate_solution_from_text(self):
+        """Generate a solution from the entered problem text."""
+        problem_text = self.problem_text_edit.toPlainText().strip()
+        if not problem_text:
+            QMessageBox.warning(self, "Warning", "Please enter a problem description.")
+            return
+        
+        # Get selected language
+        language = self.language_combo.currentText()
+        logger.info(f"Generating solution from text input in {language}...")
+        
+        # Set processing flag
+        self.processing_screenshot = True
+        self.generate_button.setEnabled(False)
+        self.optimize_button.setEnabled(False)
+        self.progress_label.setText("Generating solution...")
+        
+        # Clear previous solution
+        self.solution_text = ""
+        self.code_editor.clear()
+        
+        # Create a thread to process the text
+        self.processing_thread = ProcessingThread(self.llm_service, text_problem=problem_text, language=language)
+        self.processing_thread.finished.connect(self.on_solution_ready)
+        self.processing_thread.error.connect(self.on_processing_error)
+        self.processing_thread.start()
+        
+        # Update status bar
+        self.status_bar.showMessage("Generating solution from text...")
+
+    def clear_problem_text(self):
+        """Clear the problem text input."""
+        self.problem_text_edit.clear()
+
+# Also modify the ProcessingThread class to support text-based problems
+class ProcessingThread(QThread):
+    """Thread for processing screenshots and generating solutions."""
+
+    finished = pyqtSignal(object)
+    error = pyqtSignal(str)
+
+    def __init__(
+        self, llm_service, screenshot_paths=None, language="python", text_problem=None
+    ):
+        """Initialize the processing thread."""
+        super().__init__()
+        self.llm_service = llm_service
+        self.screenshot_paths = screenshot_paths
+        self.language = language
+        self.text_problem = text_problem
+
+    def run(self):
+        """Run the thread."""
+        try:
+            if self.screenshot_paths:
+                # Process screenshots
+                logger.info(f"Processing {len(self.screenshot_paths)} screenshots in thread")
+                response = self.llm_service.get_solution_from_screenshots(
+                    self.screenshot_paths, self.language
+                )
+            elif self.text_problem:
+                # Process text problem
+                logger.info("Processing text problem in thread")
+                response = self.llm_service.get_code_solution(
+                    self.text_problem, self.language
+                )
+            else:
+                raise ValueError("Either screenshot paths or text problem must be provided")
+                
+            self.finished.emit(response)
+        except Exception as e:
+            logger.info(f"Error in processing thread: {str(e)}")
+            self.error.emit(str(e))

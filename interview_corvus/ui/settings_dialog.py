@@ -89,17 +89,15 @@ class SettingsDialog(QDialog):
 
         # Model selection
         self.model_combo = QComboBox()
-        # OpenAI models by default
-        self.model_combo.addItems(
-            [
-                "gpt-4o",
-                "o3-mini",
-                "gpt-4o-mini",
-                "o1",
-                "o1-mini",
-            ]
-        )
+        # Add all available models
+        for model_id, model_name in settings.llm.available_models.items():
+            self.model_combo.addItem(model_name, model_id)
         llm_form_layout.addRow("Model:", self.model_combo)
+
+        # OpenRouter settings
+        self.use_openrouter = QCheckBox("Use OpenRouter")
+        self.use_openrouter.setChecked(settings.llm.use_openrouter)
+        llm_form_layout.addRow("", self.use_openrouter)
 
         # API Key
         self.api_key_input = QLineEdit()
@@ -124,6 +122,11 @@ class SettingsDialog(QDialog):
         self.test_connection_button = QPushButton("Check connection")
         self.test_connection_button.clicked.connect(self.test_connection)
         llm_form_layout.addRow("", self.test_connection_button)
+        
+        # Clear Settings Cache button
+        self.clear_cache_button = QPushButton("Clear Settings Cache")
+        self.clear_cache_button.clicked.connect(self.clear_settings_cache)
+        llm_form_layout.addRow("", self.clear_cache_button)
 
         llm_group.setLayout(llm_form_layout)
         llm_layout.addWidget(llm_group)
@@ -278,8 +281,11 @@ class SettingsDialog(QDialog):
         self.provider_combo.setCurrentText("OpenAI")
 
         # LLM settings
-        self.model_combo.setCurrentText(settings.llm.model)
+        index = self.model_combo.findData(settings.llm.model)
+        if index >= 0:
+            self.model_combo.setCurrentIndex(index)
         self.temperature_input.setValue(settings.llm.temperature)
+        self.use_openrouter.setChecked(settings.llm.use_openrouter)
 
         # Get API key if it exists
         try:
@@ -291,13 +297,14 @@ class SettingsDialog(QDialog):
             # No API key exists
 
     def save_settings(self):
-        """Save settings from the UI."""
+        """Save user-specific settings to a JSON file."""
         # Save language setting
         settings.default_language = self.language_combo.currentText()
 
         # Save LLM settings
-        settings.llm.model = self.model_combo.currentText()
+        settings.llm.model = self.model_combo.currentData()
         settings.llm.temperature = self.temperature_input.value()
+        settings.llm.use_openrouter = self.use_openrouter.isChecked()
 
         if self.screenshot_hotkey.text():
             settings.hotkeys.screenshot_key = self.screenshot_hotkey.text()
@@ -353,28 +360,55 @@ class SettingsDialog(QDialog):
         Args:
             provider: The selected provider name
         """
+        # Save current model data and selection
+        current_model_data = None
+        if self.model_combo.currentIndex() >= 0:
+            current_model_data = self.model_combo.currentData()
+        
+        # Clear the model combo
         self.model_combo.clear()
 
         if provider == "OpenAI":
-            self.model_combo.addItems(
-                [
-                    "gpt-4o",
-                    "o3-mini",
-                    "gpt-4o-mini",
-                    "o1",
-                    "o1-mini",
-                ]
-            )
-            self.api_key_input.setPlaceholderText("Enter OpenAI API key")
+            # Add standard OpenAI models
+            standard_models = [
+                ("gpt-4o", "OpenAI GPT-4"),
+                ("o3-mini", "OpenAI GPT-3.5 Mini"),
+                ("gpt-4o-mini", "OpenAI GPT-4 Mini"),
+                ("o1", "OpenAI GPT-3.5"),
+                ("o1-mini", "OpenAI GPT-3.5 Mini"),
+            ]
+            
+            # Also add OpenRouter models
+            openrouter_models = {k: v for k, v in settings.llm.available_models.items() 
+                               if "deepseek" in k or "nvidia" in k}
+            
+            # Add standard OpenAI models
+            for model_id, model_name in standard_models:
+                self.model_combo.addItem(model_name, model_id)
+                
+            # Add OpenRouter models if any
+            if openrouter_models:
+                for model_id, model_name in openrouter_models.items():
+                    self.model_combo.addItem(model_name, model_id)
+                    
+            self.api_key_input.setPlaceholderText("Enter OpenAI or OpenRouter API key")
+            
         elif provider == "Anthropic":
             self.model_combo.addItems(
                 ["claude-3-7-sonnet-latest", "claude-3-5-haiku-latest"]
             )
             self.api_key_input.setPlaceholderText("Enter Anthropic API key")
 
-            # Set default model based on provider
+        # Try to restore previous selection or set default
+        if current_model_data and provider == "OpenAI":
+            index = self.model_combo.findData(current_model_data)
+            if index >= 0:
+                self.model_combo.setCurrentIndex(index)
+                return
+                
+        # Set default model based on provider
         if provider == "OpenAI":
-            self.model_combo.setCurrentText("gpt-4o")  # Set default to o3-mini
+            self.model_combo.setCurrentText("OpenAI GPT-4")  # Set default
         else:
             self.model_combo.setCurrentText("claude-3-7-sonnet-latest")
 
@@ -397,6 +431,10 @@ class SettingsDialog(QDialog):
             QMessageBox.warning(self, "Error", "Please enter an API key.")
             return
 
+        # Determine if we're using OpenRouter based on either checkbox or model name
+        model_id = self.model_combo.currentData()
+        use_openrouter = self.use_openrouter.isChecked() or any(prefix in model_id for prefix in ["deepseek", "nvidia"])
+        
         # Temporarily save API key for testing
         try:
             old_api_key = self.api_key_manager.get_api_key()
@@ -407,12 +445,45 @@ class SettingsDialog(QDialog):
             QApplication.processEvents()  # Update UI
 
             # Import appropriate library based on provider
-            if self.provider_combo.currentText() == "OpenAI":
+            if use_openrouter:
+                # Use direct requests for OpenRouter to ensure proper authentication
+                import requests
+                import json
+                
+                headers = {
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {api_key}",
+                    "HTTP-Referer": "https://github.com/afaneor/interview-corvus",
+                    "X-Title": "Interview Corvus"
+                }
+                
+                data = {
+                    "model": model_id,
+                    "messages": [{"role": "user", "content": "Hello"}],
+                    "max_tokens": 5  # Minimal tokens for testing
+                }
+                
+                logger.info(f"Testing OpenRouter connection with model: {model_id}")
+                
+                response = requests.post(
+                    url="https://openrouter.ai/api/v1/chat/completions",
+                    headers=headers,
+                    json=data  # Use json parameter instead of data with json.dumps
+                )
+                
+                # Print response for debugging
+                logger.info(f"OpenRouter response status: {response.status_code}")
+                if response.status_code != 200:
+                    response_text = response.text
+                    logger.error(f"OpenRouter error: {response_text}")
+                    raise Exception(f"Error code: {response.status_code} - {response_text}")
+                
+            elif self.provider_combo.currentText() == "OpenAI":
                 from openai import OpenAI
 
                 client = OpenAI(api_key=api_key)
                 client.chat.completions.create(
-                    model=self.model_combo.currentText(),
+                    model=model_id,
                     messages=[{"role": "user", "content": "Hello, are you working?"}],
                 )
             else:  # Anthropic
@@ -420,7 +491,7 @@ class SettingsDialog(QDialog):
 
                 client = Anthropic(api_key=api_key)
                 client.messages.create(
-                    model=self.model_combo.currentText(),
+                    model=model_id,
                     messages=[{"role": "user", "content": "Hello, are you working?"}],
                 )
 
@@ -533,3 +604,30 @@ class SettingsDialog(QDialog):
         QMessageBox.information(
             self, "Reset Hotkeys", "Hotkeys have been reset to default values."
         )
+
+    def clear_settings_cache(self):
+        """Clear the settings cache."""
+        try:
+            # Get the settings file path
+            settings_path = settings.app_data_dir / "user_settings.json"
+            
+            # Delete the file if it exists
+            if settings_path.exists():
+                settings_path.unlink()
+                QMessageBox.information(
+                    self, 
+                    "Success", 
+                    f"Settings cache cleared successfully.\nDeleted: {settings_path}\n\nPlease restart the application."
+                )
+            else:
+                QMessageBox.information(
+                    self, 
+                    "Info", 
+                    f"No settings cache found at {settings_path}"
+                )
+        except Exception as e:
+            QMessageBox.critical(
+                self, 
+                "Error", 
+                f"Failed to clear settings cache: {str(e)}"
+            )

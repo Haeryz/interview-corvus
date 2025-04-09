@@ -21,6 +21,11 @@ class APIKeyManager:
             for model_prefix in ["claude", "anthropic"]
         ):
             return "ANTHROPIC_API_KEY"
+        elif settings.llm.use_openrouter or any(
+            prefix in settings.llm.model 
+            for prefix in ["deepseek", "nvidia"]
+        ):
+            return "OPENROUTER_API_KEY"
         else:
             return "OPENAI_API_KEY"
 

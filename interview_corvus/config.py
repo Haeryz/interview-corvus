@@ -7,6 +7,9 @@ from loguru import logger
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+import os
+from openai import OpenAI
+
 
 class LLMSettings(BaseSettings):
     """Settings for the LLM service."""
@@ -20,6 +23,25 @@ class LLMSettings(BaseSettings):
 
     # API key should be stored securely, not in config
     api_key_env_var: str = "OPENAI_API_KEY"
+    
+    # OpenRouter settings
+    use_openrouter: bool = False
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    openrouter_site_url: str = "https://github.com/afaneor/interview-corvus"  # Default to GitHub repo
+    openrouter_site_name: str = "Interview Corvus"
+
+    # Available models
+    available_models: Dict[str, str] = Field(
+        default_factory=lambda: {
+            "gpt-4o": "OpenAI GPT-4",
+            "o3-mini": "OpenAI GPT-3.5 Mini",
+            "gpt-4o-mini": "OpenAI GPT-4 Mini",
+            "o1": "OpenAI GPT-3.5",
+            "o1-mini": "OpenAI GPT-3.5 Mini",
+            "deepseek/deepseek-v3-base:free": "DeepSeek V3 Base (free)",
+            "nvidia/llama-3.1-nemotron-ultra-253b-v1:free": "NVIDIA Llama 3.1 Nemotron Ultra 253B (free)"
+        }
+    )
 
     model_config = SettingsConfigDict(env_prefix="INTERVIEW_CORVUS_LLM_")
 
