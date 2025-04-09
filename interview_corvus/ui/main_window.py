@@ -141,6 +141,13 @@ class MainWindow(QMainWindow):
         self.always_on_top_checkbox.stateChanged.connect(self.toggle_always_on_top)
         header_layout.addWidget(self.always_on_top_checkbox)
 
+        # Add screen capture exclusion checkbox (Windows only)
+        if platform.system() == "Windows":
+            self.exclude_from_capture_checkbox = QCheckBox("Exclude from Capture")
+            self.exclude_from_capture_checkbox.setToolTip("Make this window invisible in screen captures")
+            self.exclude_from_capture_checkbox.stateChanged.connect(self.toggle_capture_exclusion)
+            header_layout.addWidget(self.exclude_from_capture_checkbox)
+
         screen_selection_group = QWidget()
         screen_selection_layout = QVBoxLayout(screen_selection_group)
         screen_selection_layout.setContentsMargins(0, 0, 0, 0)
@@ -453,6 +460,15 @@ class MainWindow(QMainWindow):
         theme_menu.addAction(dark_theme_action)
 
         view_menu.addMenu(theme_menu)
+        
+        # Add screen capture exclusion action (Windows only)
+        if platform.system() == "Windows":
+            view_menu.addSeparator()
+            self.exclude_capture_action = QAction("Exclude from Screen Capture", self)
+            self.exclude_capture_action.setCheckable(True)
+            self.exclude_capture_action.setChecked(False)
+            self.exclude_capture_action.triggered.connect(self.toggle_capture_exclusion_menu)
+            view_menu.addAction(self.exclude_capture_action)
 
         # Help menu
         help_menu = menubar.addMenu("&Help")
@@ -486,6 +502,14 @@ class MainWindow(QMainWindow):
         self.tray_always_on_top_action.setChecked(settings.ui.always_on_top)
         self.tray_always_on_top_action.triggered.connect(self.toggle_always_on_top_menu)
         tray_menu.addAction(self.tray_always_on_top_action)
+
+        # Add screen capture exclusion to tray menu (Windows only)
+        if platform.system() == "Windows":
+            self.tray_exclude_capture_action = QAction("Exclude from Screen Capture", self)
+            self.tray_exclude_capture_action.setCheckable(True)
+            self.tray_exclude_capture_action.setChecked(False)
+            self.tray_exclude_capture_action.triggered.connect(self.toggle_capture_exclusion_menu)
+            tray_menu.addAction(self.tray_exclude_capture_action)
 
         reset_history_action = tray_menu.addAction("Reset All")
         reset_history_action.triggered.connect(self.reset_chat_history)
@@ -1371,6 +1395,82 @@ class MainWindow(QMainWindow):
     def clear_problem_text(self):
         """Clear the problem text input."""
         self.problem_text_edit.clear()
+
+    @pyqtSlot(int)
+    def toggle_capture_exclusion(self, state):
+        """
+        Toggle screen capture exclusion from checkbox.
+
+        Args:
+            state: Checkbox state
+        """
+        checked = state == Qt.CheckState.Checked
+        
+        # Update menu actions to match
+        if hasattr(self, 'exclude_capture_action'):
+            self.exclude_capture_action.setChecked(checked)
+            
+        if hasattr(self, 'tray_exclude_capture_action'):
+            self.tray_exclude_capture_action.setChecked(checked)
+            
+        # Apply the setting
+        success = self.invisibility_manager.set_capture_exclusion(checked)
+        
+        if success:
+            self.status_bar.showMessage(
+                f"Screen capture exclusion {'enabled' if checked else 'disabled'}"
+            )
+        else:
+            # If failed, revert the UI without triggering another toggle
+            self.exclude_from_capture_checkbox.blockSignals(True)
+            self.exclude_from_capture_checkbox.setChecked(not checked)
+            self.exclude_from_capture_checkbox.blockSignals(False)
+            
+            if hasattr(self, 'exclude_capture_action'):
+                self.exclude_capture_action.setChecked(not checked)
+            if hasattr(self, 'tray_exclude_capture_action'):
+                self.tray_exclude_capture_action.setChecked(not checked)
+                
+            self.status_bar.showMessage(
+                "Failed to change screen capture exclusion setting"
+            )
+
+    def toggle_capture_exclusion_menu(self):
+        """Toggle screen capture exclusion from menu action."""
+        # Use the current state of the action
+        state = self.exclude_capture_action.isChecked()
+        
+        # Update checkbox and tray action to match
+        if hasattr(self, 'exclude_from_capture_checkbox'):
+            self.exclude_from_capture_checkbox.blockSignals(True)
+            self.exclude_from_capture_checkbox.setChecked(state)
+            self.exclude_from_capture_checkbox.blockSignals(False)
+            
+        if hasattr(self, 'tray_exclude_capture_action'):
+            self.tray_exclude_capture_action.setChecked(state)
+            
+        # Apply the setting
+        success = self.invisibility_manager.set_capture_exclusion(state)
+        
+        if success:
+            self.status_bar.showMessage(
+                f"Screen capture exclusion {'enabled' if state else 'disabled'}"
+            )
+        else:
+            # If failed, revert the UI without triggering another toggle
+            self.exclude_capture_action.setChecked(not state)
+            
+            if hasattr(self, 'exclude_from_capture_checkbox'):
+                self.exclude_from_capture_checkbox.blockSignals(True)
+                self.exclude_from_capture_checkbox.setChecked(not state)
+                self.exclude_from_capture_checkbox.blockSignals(False)
+                
+            if hasattr(self, 'tray_exclude_capture_action'):
+                self.tray_exclude_capture_action.setChecked(not state)
+                
+            self.status_bar.showMessage(
+                "Failed to change screen capture exclusion setting"
+            )
 
 # Also modify the ProcessingThread class to support text-based problems
 class ProcessingThread(QThread):

@@ -1,6 +1,7 @@
 """Manager for invisibility features during screen sharing."""
 
 import platform
+import ctypes
 from typing import Tuple
 
 from loguru import logger
@@ -26,9 +27,11 @@ class InvisibilityManager(QObject):
         self.is_visible = True
         self.is_screen_sharing_active = False
         self.window_handle = None
+        self.capture_excluded = False  # Track if window is excluded from capture
 
         # Для macOS: создаем крошечное невидимое окно, чтобы приложение оставалось активным
         self.is_macos = platform.system() == "Darwin"
+        self.is_windows = platform.system() == "Windows"
         self.helper_window = None
 
     def set_window_handle(self, window_handle):
@@ -201,6 +204,66 @@ class InvisibilityManager(QObject):
         self.visibility_changed.emit(visible)
 
         return self.is_visible
+
+    def toggle_capture_exclusion(self) -> bool:
+        """
+        Toggle whether the window is excluded from screen capture.
+        
+        Returns:
+            New exclusion state (True if excluded from capture)
+        """
+        return self.set_capture_exclusion(not self.capture_excluded)
+    
+    def set_capture_exclusion(self, exclude: bool) -> bool:
+        """
+        Set whether the window should be excluded from screen capture.
+        
+        This uses the Windows SetWindowDisplayAffinity API to make the window
+        invisible during screen captures but still visible to the user.
+        
+        Args:
+            exclude: True to exclude from screen capture, False to include
+            
+        Returns:
+            Whether the operation was successful
+        """
+        if not self.window_handle:
+            logger.info("Warning: Cannot set capture exclusion without window handle")
+            return False
+            
+        if not self.is_windows:
+            logger.info("Screen capture exclusion is only supported on Windows")
+            return False
+            
+        success = False
+        
+        try:
+            # Get window handle
+            hwnd = self.window_handle.winId()
+            
+            # Define constants if not available in ctypes
+            WDA_NONE = 0x00000000
+            WDA_EXCLUDEFROMCAPTURE = 0x00000011  # Available from Windows 10 2004+
+            
+            # Set the display affinity
+            value = WDA_EXCLUDEFROMCAPTURE if exclude else WDA_NONE
+            
+            # Call the Windows API
+            SetWindowDisplayAffinity = ctypes.windll.user32.SetWindowDisplayAffinity
+            success = SetWindowDisplayAffinity(int(hwnd), value)
+            
+            if success:
+                self.capture_excluded = exclude
+                logger.info(f"Window capture exclusion set to: {exclude}")
+            else:
+                error = ctypes.get_last_error()
+                logger.error(f"Failed to set window display affinity. Error code: {error}")
+                
+        except Exception as e:
+            logger.error(f"Error setting capture exclusion: {e}")
+            success = False
+            
+        return success
 
     def restore_visibility_without_focus(self):
         """Restore window visibility without stealing focus from other applications."""
