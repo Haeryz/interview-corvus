@@ -93,6 +93,11 @@ class MainWindow(QMainWindow):
             f"Window visibility at startup: {self.invisibility_manager.is_visible}"
         )
 
+        # Initialize capture exclusion state (Windows only)
+        if platform.system() == "Windows" and hasattr(self, "exclude_from_capture_checkbox"):
+            # Default to disabled
+            self.toggle_capture_exclusion_direct(False)
+
         # Register hotkeys now that the window is created
         self.hotkey_manager.register_hotkeys(self)
         self.installEventFilter(self.hotkey_manager)
@@ -145,7 +150,10 @@ class MainWindow(QMainWindow):
         if platform.system() == "Windows":
             self.exclude_from_capture_checkbox = QCheckBox("Exclude from Capture")
             self.exclude_from_capture_checkbox.setToolTip("Make this window invisible in screen captures")
-            self.exclude_from_capture_checkbox.stateChanged.connect(self.toggle_capture_exclusion)
+            # Connect with a lambda to convert the state directly to a boolean
+            self.exclude_from_capture_checkbox.stateChanged.connect(
+                lambda state: self.toggle_capture_exclusion_direct(state == Qt.CheckState.Checked)
+            )
             header_layout.addWidget(self.exclude_from_capture_checkbox)
 
         screen_selection_group = QWidget()
@@ -1440,33 +1448,40 @@ class MainWindow(QMainWindow):
         # Use the current state of the action
         state = self.exclude_capture_action.isChecked()
         
-        # Update checkbox and tray action to match
-        if hasattr(self, 'exclude_from_capture_checkbox'):
-            self.exclude_from_capture_checkbox.blockSignals(True)
-            self.exclude_from_capture_checkbox.setChecked(state)
-            self.exclude_from_capture_checkbox.blockSignals(False)
+        # Use the direct method to apply the change
+        self.toggle_capture_exclusion_direct(state)
+
+    def toggle_capture_exclusion_direct(self, checked: bool):
+        """
+        Toggle screen capture exclusion from checkbox, using a direct boolean value.
+
+        Args:
+            checked: Boolean indicating checked state
+        """        
+        # Update menu actions to match
+        if hasattr(self, 'exclude_capture_action'):
+            self.exclude_capture_action.setChecked(checked)
             
         if hasattr(self, 'tray_exclude_capture_action'):
-            self.tray_exclude_capture_action.setChecked(state)
+            self.tray_exclude_capture_action.setChecked(checked)
             
         # Apply the setting
-        success = self.invisibility_manager.set_capture_exclusion(state)
+        success = self.invisibility_manager.set_capture_exclusion(checked)
         
         if success:
             self.status_bar.showMessage(
-                f"Screen capture exclusion {'enabled' if state else 'disabled'}"
+                f"Screen capture exclusion {'enabled' if checked else 'disabled'}"
             )
         else:
             # If failed, revert the UI without triggering another toggle
-            self.exclude_capture_action.setChecked(not state)
+            self.exclude_from_capture_checkbox.blockSignals(True)
+            self.exclude_from_capture_checkbox.setChecked(not checked)
+            self.exclude_from_capture_checkbox.blockSignals(False)
             
-            if hasattr(self, 'exclude_from_capture_checkbox'):
-                self.exclude_from_capture_checkbox.blockSignals(True)
-                self.exclude_from_capture_checkbox.setChecked(not state)
-                self.exclude_from_capture_checkbox.blockSignals(False)
-                
+            if hasattr(self, 'exclude_capture_action'):
+                self.exclude_capture_action.setChecked(not checked)
             if hasattr(self, 'tray_exclude_capture_action'):
-                self.tray_exclude_capture_action.setChecked(not state)
+                self.tray_exclude_capture_action.setChecked(not checked)
                 
             self.status_bar.showMessage(
                 "Failed to change screen capture exclusion setting"
