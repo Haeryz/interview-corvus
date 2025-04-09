@@ -37,24 +37,49 @@ class PromptManager:
         Returns:
             Formatted prompt
         """
-        template = """Please solve this programming problem and provide a solution.
+        # Using named placeholders instead of positional to avoid formatting errors
+        template = """You are an expert {language} programmer. Solve this programming problem with clean, complete code:
 
 PROBLEM:
 {problem_description}
 
-INSTRUCTIONS:
-1. Provide your solution in {language} programming language
-2. Include a step-by-step explanation of your approach
-3. Analyze the time complexity (Big O notation)
-4. Analyze the space complexity (Big O notation)
-5. List possible edge cases and how they're handled
-6. Your solution must be in valid JSON format with these fields:
-   - code: The complete code solution
-   - explanation: Your step-by-step explanation
-   - time_complexity: Time complexity analysis
-   - space_complexity: Space complexity analysis
-   - edge_cases: Array of edge cases (even if empty)
+IMPORTANT: Your solution MUST be presented in this exact format:
+
+1. FIRST, write your complete code solution in a SINGLE CODE BLOCK with language tag
+2. Then list Time Complexity
+3. Then list Space Complexity
+4. Then write your Explanation
+5. Finally list Edge Cases
+
+DO NOT split your code across multiple blocks. Keep all your code together in ONE CONTINUOUS BLOCK.
+DO NOT include any empty dictionaries or interruptions in your code.
+
+FORMAT EXAMPLE:
+```{language}
+def twoSum(nums, target):
+    num_map = {{}}  # Using double braces to escape curly braces
+    for i, num in enumerate(nums):
+        complement = target - num
+        if complement in num_map:
+            return [num_map[complement], i]
+        num_map[num] = i
+    return []
+```
+
+Time Complexity: O(n)
+Space Complexity: O(n)
+
+Explanation:
+This solution uses a hash map to store values we've seen so far and their indices.
+
+Edge Cases:
+- Empty array
+- No solution exists
+- Multiple valid solutions
+
+Remember to write your COMPLETE CODE in a SINGLE uninterrupted block.
 """
+        # Use safe_format to handle any problematic placeholders
         return template.format(
             problem_description=problem_description,
             language=language
